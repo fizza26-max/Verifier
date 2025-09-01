@@ -105,7 +105,7 @@ def classify_dates(text, dates):
 # ------------------------
 # Verification Logic
 # ------------------------
-def verify_text(text, source_type="TEXT"):
+def verify_text(text, source_type="TEXT", has_signature=False):
     if not text.strip():
         return "--- Evidence Report ---\n\n❌ No readable text provided."
 
@@ -150,6 +150,15 @@ def verify_text(text, source_type="TEXT"):
     model_label = result['labels'][0]
     model_confidence = result['scores'][0]
 
+    # ------------------------
+    # Signature / Seal Boost
+    # ------------------------
+    signature_keywords = ["signature", "signed by", "seal", "stamp", "authorized", "principal", "head of"]
+    if any(kw in text.lower() for kw in signature_keywords) or has_signature:
+        model_confidence = min(1.0, model_confidence + 0.25)  # boost confidence
+        if model_label == "FAKE" and not (scam_detected or contradiction or grammar_issue):
+            model_label = "REAL"
+
     # Final Verdict
     final_label = model_label
     if scam_detected or contradiction or grammar_issue:
@@ -177,6 +186,8 @@ def verify_text(text, source_type="TEXT"):
         report += "⚠️ Date inconsistency detected (event before issue date).\n"
     if scam_detected:
         report += "⚠️ Scam-related keywords detected.\n"
+    if has_signature or any(kw in text.lower() for kw in signature_keywords):
+        report += "✅ Signature/Seal detected in document.\n"
 
     report += "\nFormatting and tone analyzed.\n\n"
     report += "🏁 Classification Result\n\n"
@@ -184,6 +195,7 @@ def verify_text(text, source_type="TEXT"):
     report += f"Final Label: {final_label}\n"
 
     return report
+
 
 
 def verify_document(file):
