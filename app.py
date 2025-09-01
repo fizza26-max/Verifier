@@ -12,15 +12,13 @@ import os
 # ------------------------
 # Hugging Face Model
 # ------------------------
-tokenizer = AutoTokenizer.from_pretrained("facebook/bart-large-mnli")
-model = AutoModelForSequenceClassification.from_pretrained("facebook/bart-large-mnli")
 
 classifier = pipeline(
     "zero-shot-classification",
-    model=model,
-    tokenizer=tokenizer,
+    model="valhalla/distilbart-mnli-12-1",   # lighter alternative
     device=-1
 )
+
 
 # ------------------------
 # Lazy EasyOCR Loader
