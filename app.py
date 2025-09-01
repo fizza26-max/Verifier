@@ -4,10 +4,13 @@ import pdfplumber
 import docx
 from PIL import Image
 import easyocr  # ✅ replacing pytesseract
+import numpy as np   # ✅ for EasyOCR compatibility
 
 from textblob import TextBlob
 import re
 import fitz
+import tempfile
+import os
 
 # ------------------------
 # Hugging Face Model
@@ -43,24 +46,33 @@ def extract_text_from_pdf(file_path):
             page = doc[page_num]
             pix = page.get_pixmap()
             img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
-            ocr_result = reader.readtext(img, detail=0)
+
+            # ✅ Convert PIL -> numpy
+            img_np = np.array(img)
+
+            ocr_result = reader.readtext(img_np, detail=0)
             ocr_text += " ".join(ocr_result) + "\n"
         text = ocr_text
     return text.strip()
+
 
 def extract_text_from_docx(file_path):
     doc = docx.Document(file_path)
     return "\n".join([p.text for p in doc.paragraphs]).strip()
 
+
 def extract_text_from_image(file_path):
     img = Image.open(file_path)
-    result = reader.readtext(img, detail=0)
+    img_np = np.array(img)   # ✅ Convert PIL -> numpy
+    result = reader.readtext(img_np, detail=0)
     return " ".join(result).strip()
+
 
 def check_grammar(text):
     blob = TextBlob(text)
     corrected_text = str(blob.correct())
     return corrected_text != text
+
 
 def extract_dates(text):
     date_patterns = [
@@ -74,6 +86,7 @@ def extract_dates(text):
         matches = re.findall(pattern, text, flags=re.IGNORECASE)
         dates_found.extend(matches)
     return list(set(dates_found))
+
 
 def classify_dates(text, dates):
     issue_keywords = ["issued on", "dated", "notified on", "circular no"]
@@ -107,7 +120,7 @@ def verify_text(text, source_type="TEXT"):
     issue_dates, event_dates = classify_dates(text, dates)
 
     scam_keywords = [
-        "bank details", "send money", "lottery", "win prize", 
+        "bank details", "send money", "lottery", "win prize",
         "transfer fee", "urgent", "click here", "claim", "scholarship $"
     ]
     scam_detected = any(kw in text.lower() for kw in scam_keywords)
@@ -151,11 +164,11 @@ def verify_text(text, source_type="TEXT"):
     else:
         report += "No grammar issues detected.\n"
 
-    if issue_dates: 
+    if issue_dates:
         report += f"📌 Issue Date(s): {', '.join(issue_dates)}\n"
-    if event_dates: 
+    if event_dates:
         report += f"📌 Event Date(s): {', '.join(event_dates)}\n"
-    if not dates: 
+    if not dates:
         report += "No specific dates detected.\n"
 
     if contradiction:
@@ -170,13 +183,14 @@ def verify_text(text, source_type="TEXT"):
 
     return report
 
-import tempfile
-import os
-
+# ------------------------
+# File Verification Wrapper
+# ------------------------
 def verify_document(file):
     if file is None:
         return "❌ Please upload a file or provide a file path."
 
+    temp_path = None
     if isinstance(file, str):
         file_path = file
     else:
@@ -184,6 +198,7 @@ def verify_document(file):
         with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
             tmp.write(file.read())
             file_path = tmp.name
+            temp_path = file_path  # mark for cleanup
 
     ext = file_path.split('.')[-1].lower()
     if ext == "pdf":
@@ -194,6 +209,10 @@ def verify_document(file):
         text = extract_text_from_image(file_path)
     else:
         return "❌ Unsupported file type."
+
+    # cleanup temporary file if created
+    if temp_path and os.path.exists(temp_path):
+        os.remove(temp_path)
 
     return verify_text(text, source_type=ext.upper())
 
@@ -212,7 +231,7 @@ st.set_page_config(page_title="Document Verifier", layout="centered")
 st.title("📑 Document Authenticity Verifier")
 
 uploaded_file = st.file_uploader(
-    "Upload a document (PDF, DOCX, PNG, JPG)", 
+    "Upload a document (PDF, DOCX, PNG, JPG)",
     type=["pdf", "docx", "png", "jpg", "jpeg"]
 )
 manual_text = st.text_area("Or paste text manually")
