@@ -3,14 +3,17 @@ from transformers import pipeline, AutoModelForSequenceClassification, AutoToken
 import pdfplumber
 import docx
 from PIL import Image
-from textblob import TextBlob
 import re
+from textblob import TextBlob
+import fitz
 import tempfile
 import os
 
 # ------------------------
-# Hugging Face Model
+# Hugging Face Models
 # ------------------------
+
+# Classification Model
 tokenizer = AutoTokenizer.from_pretrained("facebook/bart-large-mnli")
 model = AutoModelForSequenceClassification.from_pretrained("facebook/bart-large-mnli")
 
@@ -18,8 +21,12 @@ classifier = pipeline(
     "zero-shot-classification",
     model=model,
     tokenizer=tokenizer,
-    device=-1  # CPU mode
+    device=-1
 )
+
+# OCR Model (instead of pytesseract)
+ocr_pipeline = pipeline("image-to-text", model="microsoft/trocr-base-printed")
+
 
 # ------------------------
 # Extraction Functions
@@ -32,22 +39,33 @@ def extract_text_from_pdf(file_path):
             if page_text:
                 text += page_text + "\n"
 
-    if not text.strip():
-        text = "❌ No extractable text found in this PDF. Please upload a text-based PDF."
+    if not text.strip():  # OCR fallback
+        ocr_text = ""
+        doc = fitz.open(file_path)
+        for page_num in range(len(doc)):
+            page = doc[page_num]
+            pix = page.get_pixmap()
+            img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+            ocr_text += ocr_pipeline(img)[0]["generated_text"] + "\n"
+        text = ocr_text
     return text.strip()
+
 
 def extract_text_from_docx(file_path):
     doc = docx.Document(file_path)
     return "\n".join([p.text for p in doc.paragraphs]).strip()
 
+
 def extract_text_from_image(file_path):
-    # OCR not available on Streamlit Cloud
-    return "❌ OCR not supported on Streamlit Cloud. Please upload text-based PDFs or DOCX files."
+    img = Image.open(file_path)
+    return ocr_pipeline(img)[0]["generated_text"].strip()
+
 
 def check_grammar(text):
     blob = TextBlob(text)
     corrected_text = str(blob.correct())
     return corrected_text != text
+
 
 def extract_dates(text):
     date_patterns = [
@@ -61,6 +79,7 @@ def extract_dates(text):
         matches = re.findall(pattern, text, flags=re.IGNORECASE)
         dates_found.extend(matches)
     return list(set(dates_found))
+
 
 def classify_dates(text, dates):
     issue_keywords = ["issued on", "dated", "notified on", "circular no"]
@@ -82,6 +101,7 @@ def classify_dates(text, dates):
         issue_dates.append(dates[0])
     return issue_dates, event_dates
 
+
 # ------------------------
 # Verification Logic
 # ------------------------
@@ -89,11 +109,13 @@ def verify_text(text, source_type="TEXT"):
     if not text.strip():
         return "--- Evidence Report ---\n\n❌ No readable text provided."
 
-    # Heuristic Checks
+    # Grammar
     grammar_issue = check_grammar(text)
+    # Dates
     dates = extract_dates(text)
     issue_dates, event_dates = classify_dates(text, dates)
 
+    # Scam / fake indicators
     scam_keywords = [
         "bank details", "send money", "lottery", "win prize",
         "transfer fee", "urgent", "click here", "claim", "scholarship $"
@@ -159,21 +181,20 @@ def verify_text(text, source_type="TEXT"):
     report += "\nFormatting and tone analyzed.\n\n"
     report += "🏁 Classification Result\n\n"
     report += f"Model Verdict: {model_label} ({model_confidence:.2f})\n"
-    report += f"Final Verdict: {final_label}\n"
+    report += f"Final Label: {final_label}\n"
 
     return report
+
 
 def verify_document(file):
     if file is None:
         return "❌ Please upload a file or provide a file path."
 
-    if isinstance(file, str):
-        file_path = file
-    else:
-        suffix = os.path.splitext(file.name)[-1]
-        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-            tmp.write(file.read())
-            file_path = tmp.name
+    # Handle file type
+    suffix = os.path.splitext(file.name)[-1]
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+        tmp.write(file.read())
+        file_path = tmp.name
 
     ext = file_path.split('.')[-1].lower()
     if ext == "pdf":
@@ -187,6 +208,7 @@ def verify_document(file):
 
     return verify_text(text, source_type=ext.upper())
 
+
 def process_input(file, manual_text):
     if file is not None:
         return verify_document(file)
@@ -194,6 +216,7 @@ def process_input(file, manual_text):
         return verify_text(manual_text, source_type="MANUAL TEXT")
     else:
         return "❌ Please upload a document or paste text first."
+
 
 # ------------------------
 # Streamlit UI
