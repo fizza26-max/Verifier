@@ -1,31 +1,23 @@
 import streamlit as st
-from transformers import pipeline, AutoModelForSequenceClassification, AutoTokenizer
+from transformers import pipeline
 import pdfplumber
 import docx
 from PIL import Image
 from textblob import TextBlob
 import re
 import fitz
+import pytesseract
 import tempfile
 import os
 
 # ------------------------
-# Hugging Face Model
+# Hugging Face Model (Streamlit Cloud safe)
 # ------------------------
-
 classifier = pipeline(
     "zero-shot-classification",
-    model="valhalla/distilbart-mnli-12-1",   # lighter alternative
+    model="valhalla/distilbart-mnli-12-1",  # lighter & CPU-safe
     device=-1
 )
-
-
-# ------------------------
-# Lazy EasyOCR Loader
-# ------------------------
-def get_easyocr_reader():
-    import easyocr
-    return easyocr.Reader(['en'], verbose=False)
 
 # ------------------------
 # Extraction Functions
@@ -38,46 +30,28 @@ def extract_text_from_pdf(file_path):
             if page_text:
                 text += page_text + "\n"
 
-    # OCR fallback if no text
-    if not text.strip():
-        try:
-            reader = get_easyocr_reader()
-            ocr_text = ""
-            doc = fitz.open(file_path)
-            for page_num in range(len(doc)):
-                page = doc[page_num]
-                pix = page.get_pixmap()
-                img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
-                ocr_result = reader.readtext(img, detail=0)
-                ocr_text += " ".join(ocr_result) + "\n"
-            text = ocr_text
-        except Exception as e:
-            return f"❌ OCR failed: {str(e)}"
+    if not text.strip():  # OCR fallback
+        ocr_text = ""
+        doc = fitz.open(file_path)
+        for page_num in range(len(doc)):
+            page = doc[page_num]
+            pix = page.get_pixmap()
+            img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+            ocr_text += pytesseract.image_to_string(img) + "\n"
+        text = ocr_text
     return text.strip()
-
 
 def extract_text_from_docx(file_path):
     doc = docx.Document(file_path)
     return "\n".join([p.text for p in doc.paragraphs]).strip()
 
-
 def extract_text_from_image(file_path):
-    try:
-        img = Image.open(file_path)
-        reader = get_easyocr_reader()
-        result = reader.readtext(img, detail=0)
-        return " ".join(result).strip()
-    except Exception as e:
-        return f"❌ OCR failed: {str(e)}"
+    return pytesseract.image_to_string(Image.open(file_path)).strip()
 
-# ------------------------
-# Helper Functions
-# ------------------------
 def check_grammar(text):
     blob = TextBlob(text)
     corrected_text = str(blob.correct())
     return corrected_text != text
-
 
 def extract_dates(text):
     date_patterns = [
@@ -91,7 +65,6 @@ def extract_dates(text):
         matches = re.findall(pattern, text, flags=re.IGNORECASE)
         dates_found.extend(matches)
     return list(set(dates_found))
-
 
 def classify_dates(text, dates):
     issue_keywords = ["issued on", "dated", "notified on", "circular no"]
@@ -125,7 +98,7 @@ def verify_text(text, source_type="TEXT"):
     issue_dates, event_dates = classify_dates(text, dates)
 
     scam_keywords = [
-        "bank details", "send money", "lottery", "win prize",
+        "bank details", "send money", "lottery", "win prize", 
         "transfer fee", "urgent", "click here", "claim", "scholarship $"
     ]
     scam_detected = any(kw in text.lower() for kw in scam_keywords)
@@ -164,16 +137,17 @@ def verify_text(text, source_type="TEXT"):
     report += "🔎 Document Analysis\n\n"
     report += f"Source: {source_type}\n\n"
     report += "✅ Evidence Considered\n\n"
+
     if grammar_issue:
         report += "⚠️ Grammar/Spelling issues detected.\n"
     else:
         report += "No grammar issues detected.\n"
 
-    if issue_dates:
+    if issue_dates: 
         report += f"📌 Issue Date(s): {', '.join(issue_dates)}\n"
-    if event_dates:
+    if event_dates: 
         report += f"📌 Event Date(s): {', '.join(event_dates)}\n"
-    if not dates:
+    if not dates: 
         report += "No specific dates detected.\n"
 
     if contradiction:
@@ -187,7 +161,6 @@ def verify_text(text, source_type="TEXT"):
     report += f"Final Verdict: {final_label}\n"
 
     return report
-
 
 def verify_document(file):
     if file is None:
@@ -213,6 +186,14 @@ def verify_document(file):
 
     return verify_text(text, source_type=ext.upper())
 
+def process_input(file, manual_text):
+    if file is not None:
+        return verify_document(file)
+    elif manual_text.strip():
+        return verify_text(manual_text, source_type="MANUAL TEXT")
+    else:
+        return "❌ Please upload a document or paste text first."
+
 # ------------------------
 # Streamlit UI
 # ------------------------
@@ -220,21 +201,17 @@ st.set_page_config(page_title="Document Verifier", layout="centered")
 st.title("📑 Document Authenticity Verifier")
 
 uploaded_file = st.file_uploader(
-    "Upload a document (PDF, DOCX, PNG, JPG)",
+    "Upload a document (PDF, DOCX, PNG, JPG)", 
     type=["pdf", "docx", "png", "jpg", "jpeg"]
 )
 manual_text = st.text_area("Or paste text manually")
 
-col1, col2 = st.columns(2)
+if st.button("Verify Uploaded Document"):
+    with st.spinner("Analyzing uploaded document..."):
+        result = process_input(uploaded_file, "")
+    st.text_area("Evidence Report", value=result, height=400)
 
-with col1:
-    if st.button("Verify Uploaded Document"):
-        with st.spinner("Analyzing uploaded document..."):
-            result = verify_document(uploaded_file)
-        st.text_area("Evidence Report", value=result, height=400)
-
-with col2:
-    if st.button("Verify Manual Text"):
-        with st.spinner("Analyzing manual text..."):
-            result = verify_text(manual_text, source_type="MANUAL TEXT")
-        st.text_area("Evidence Report", value=result, height=400)
+if st.button("Verify Manual Text"):
+    with st.spinner("Analyzing manual text..."):
+        result = process_input(None, manual_text)
+    st.text_area("Evidence Report", value=result, height=400)
