@@ -3,9 +3,6 @@ from transformers import pipeline, AutoModelForSequenceClassification, AutoToken
 import pdfplumber
 import docx
 from PIL import Image
-import easyocr  # ✅ replacing pytesseract
-import numpy as np   # ✅ for EasyOCR compatibility
-
 from textblob import TextBlob
 import re
 import fitz
@@ -25,8 +22,12 @@ classifier = pipeline(
     device=-1
 )
 
-# Initialize EasyOCR reader
-reader = easyocr.Reader(['en'])
+# ------------------------
+# Lazy EasyOCR Loader
+# ------------------------
+def get_easyocr_reader():
+    import easyocr
+    return easyocr.Reader(['en'], verbose=False)
 
 # ------------------------
 # Extraction Functions
@@ -39,20 +40,21 @@ def extract_text_from_pdf(file_path):
             if page_text:
                 text += page_text + "\n"
 
-    if not text.strip():  # OCR fallback
-        ocr_text = ""
-        doc = fitz.open(file_path)
-        for page_num in range(len(doc)):
-            page = doc[page_num]
-            pix = page.get_pixmap()
-            img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
-
-            # ✅ Convert PIL -> numpy
-            img_np = np.array(img)
-
-            ocr_result = reader.readtext(img_np, detail=0)
-            ocr_text += " ".join(ocr_result) + "\n"
-        text = ocr_text
+    # OCR fallback if no text
+    if not text.strip():
+        try:
+            reader = get_easyocr_reader()
+            ocr_text = ""
+            doc = fitz.open(file_path)
+            for page_num in range(len(doc)):
+                page = doc[page_num]
+                pix = page.get_pixmap()
+                img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+                ocr_result = reader.readtext(img, detail=0)
+                ocr_text += " ".join(ocr_result) + "\n"
+            text = ocr_text
+        except Exception as e:
+            return f"❌ OCR failed: {str(e)}"
     return text.strip()
 
 
@@ -62,12 +64,17 @@ def extract_text_from_docx(file_path):
 
 
 def extract_text_from_image(file_path):
-    img = Image.open(file_path)
-    img_np = np.array(img)   # ✅ Convert PIL -> numpy
-    result = reader.readtext(img_np, detail=0)
-    return " ".join(result).strip()
+    try:
+        img = Image.open(file_path)
+        reader = get_easyocr_reader()
+        result = reader.readtext(img, detail=0)
+        return " ".join(result).strip()
+    except Exception as e:
+        return f"❌ OCR failed: {str(e)}"
 
-
+# ------------------------
+# Helper Functions
+# ------------------------
 def check_grammar(text):
     blob = TextBlob(text)
     corrected_text = str(blob.correct())
@@ -183,14 +190,11 @@ def verify_text(text, source_type="TEXT"):
 
     return report
 
-# ------------------------
-# File Verification Wrapper
-# ------------------------
+
 def verify_document(file):
     if file is None:
         return "❌ Please upload a file or provide a file path."
 
-    temp_path = None
     if isinstance(file, str):
         file_path = file
     else:
@@ -198,7 +202,6 @@ def verify_document(file):
         with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
             tmp.write(file.read())
             file_path = tmp.name
-            temp_path = file_path  # mark for cleanup
 
     ext = file_path.split('.')[-1].lower()
     if ext == "pdf":
@@ -210,19 +213,7 @@ def verify_document(file):
     else:
         return "❌ Unsupported file type."
 
-    # cleanup temporary file if created
-    if temp_path and os.path.exists(temp_path):
-        os.remove(temp_path)
-
     return verify_text(text, source_type=ext.upper())
-
-def process_input(file, manual_text):
-    if file is not None:
-        return verify_document(file)
-    elif manual_text.strip():
-        return verify_text(manual_text, source_type="MANUAL TEXT")
-    else:
-        return "❌ Please upload a document or paste text first."
 
 # ------------------------
 # Streamlit UI
@@ -236,12 +227,16 @@ uploaded_file = st.file_uploader(
 )
 manual_text = st.text_area("Or paste text manually")
 
-if st.button("Verify Uploaded Document"):
-    with st.spinner("Analyzing uploaded document..."):
-        result = process_input(uploaded_file, "")
-    st.text_area("Evidence Report", value=result, height=400)
+col1, col2 = st.columns(2)
 
-if st.button("Verify Manual Text"):
-    with st.spinner("Analyzing manual text..."):
-        result = process_input(None, manual_text)
-    st.text_area("Evidence Report", value=result, height=400)
+with col1:
+    if st.button("Verify Uploaded Document"):
+        with st.spinner("Analyzing uploaded document..."):
+            result = verify_document(uploaded_file)
+        st.text_area("Evidence Report", value=result, height=400)
+
+with col2:
+    if st.button("Verify Manual Text"):
+        with st.spinner("Analyzing manual text..."):
+            result = verify_text(manual_text, source_type="MANUAL TEXT")
+        st.text_area("Evidence Report", value=result, height=400)
