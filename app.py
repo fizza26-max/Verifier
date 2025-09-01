@@ -1,23 +1,17 @@
-
 import streamlit as st
-from transformers import pipeline,AutoModelForSequenceClassification, AutoTokenizer
+from transformers import pipeline, AutoModelForSequenceClassification, AutoTokenizer
 import pdfplumber
 import docx
 from PIL import Image
+import easyocr  # ✅ replacing pytesseract
 
 from textblob import TextBlob
 import re
 import fitz
-import pytesseract
-pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
-
 
 # ------------------------
 # Hugging Face Model
-
-
-
-
+# ------------------------
 tokenizer = AutoTokenizer.from_pretrained("facebook/bart-large-mnli")
 model = AutoModelForSequenceClassification.from_pretrained("facebook/bart-large-mnli")
 
@@ -28,6 +22,8 @@ classifier = pipeline(
     device=-1
 )
 
+# Initialize EasyOCR reader
+reader = easyocr.Reader(['en'])
 
 # ------------------------
 # Extraction Functions
@@ -47,7 +43,8 @@ def extract_text_from_pdf(file_path):
             page = doc[page_num]
             pix = page.get_pixmap()
             img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
-            ocr_text += pytesseract.image_to_string(img) + "\n"
+            ocr_result = reader.readtext(img, detail=0)
+            ocr_text += " ".join(ocr_result) + "\n"
         text = ocr_text
     return text.strip()
 
@@ -56,7 +53,9 @@ def extract_text_from_docx(file_path):
     return "\n".join([p.text for p in doc.paragraphs]).strip()
 
 def extract_text_from_image(file_path):
-    return pytesseract.image_to_string(Image.open(file_path)).strip()
+    img = Image.open(file_path)
+    result = reader.readtext(img, detail=0)
+    return " ".join(result).strip()
 
 def check_grammar(text):
     blob = TextBlob(text)
@@ -103,21 +102,16 @@ def verify_text(text, source_type="TEXT"):
     if not text.strip():
         return "--- Evidence Report ---\n\n❌ No readable text provided."
 
-    # ------------------------
-    # Heuristic Checks
-    # ------------------------
     grammar_issue = check_grammar(text)
     dates = extract_dates(text)
     issue_dates, event_dates = classify_dates(text, dates)
 
-    # Scam / fake indicators
     scam_keywords = [
         "bank details", "send money", "lottery", "win prize", 
         "transfer fee", "urgent", "click here", "claim", "scholarship $"
     ]
     scam_detected = any(kw in text.lower() for kw in scam_keywords)
 
-    # Date consistency check
     contradiction = False
     if issue_dates and event_dates:
         try:
@@ -139,29 +133,18 @@ def verify_text(text, source_type="TEXT"):
         except Exception:
             pass
 
-    # ------------------------
-    # Hugging Face Model
-    # ------------------------
     labels = ["REAL", "FAKE"]
     result = classifier(text[:1000], candidate_labels=labels)
     model_label = result['labels'][0]
     model_confidence = result['scores'][0]
 
-    # ------------------------
-    # Final Verdict Logic
-    # ------------------------
     final_label = model_label
     if scam_detected or contradiction or grammar_issue:
-        # downgrade to FAKE if red flags appear
         final_label = "FAKE"
 
-    # ------------------------
-    # Report
-    # ------------------------
     report = "📄 Evidence Report\n\n"
     report += "🔎 Document Analysis\n\n"
     report += f"Source: {source_type}\n\n"
-
     report += "✅ Evidence Considered\n\n"
     if grammar_issue:
         report += "⚠️ Grammar/Spelling issues detected.\n"
@@ -194,19 +177,14 @@ def verify_document(file):
     if file is None:
         return "❌ Please upload a file or provide a file path."
 
-    # Case 1: If input is a string (direct file path)
     if isinstance(file, str):
         file_path = file
-
-    # Case 2: If input is an uploaded file (Streamlit/Colab)
     else:
-        # Save to a temporary file
         suffix = os.path.splitext(file.name)[-1]
         with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
             tmp.write(file.read())
             file_path = tmp.name
 
-    # Detect file type and extract
     ext = file_path.split('.')[-1].lower()
     if ext == "pdf":
         text = extract_text_from_pdf(file_path)
@@ -219,8 +197,6 @@ def verify_document(file):
 
     return verify_text(text, source_type=ext.upper())
 
-
-
 def process_input(file, manual_text):
     if file is not None:
         return verify_document(file)
@@ -229,9 +205,6 @@ def process_input(file, manual_text):
     else:
         return "❌ Please upload a document or paste text first."
 
-# ------------------------
-# Streamlit UI
-# ------------------------
 # ------------------------
 # Streamlit UI
 # ------------------------
@@ -244,15 +217,12 @@ uploaded_file = st.file_uploader(
 )
 manual_text = st.text_area("Or paste text manually")
 
-# Button for uploaded files
 if st.button("Verify Uploaded Document"):
     with st.spinner("Analyzing uploaded document..."):
         result = process_input(uploaded_file, "")
     st.text_area("Evidence Report", value=result, height=400)
 
-# Button for manual text
 if st.button("Verify Manual Text"):
     with st.spinner("Analyzing manual text..."):
         result = process_input(None, manual_text)
     st.text_area("Evidence Report", value=result, height=400)
-
