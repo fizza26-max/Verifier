@@ -88,32 +88,20 @@ def check_grammar(text):
         return False
 
 def extract_dates(text):
+    import re
     date_patterns = [
-        r'\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b',
-        r'\b\d{1,2}\.\d{1,2}\.\d{2,4}\b',
-        r'\b\d{1,2}(?:st|nd|rd|th)?\s+\w+\s*,?\s*\d{2,4}\b',
-        r'\b\w+\s+\d{1,2},\s*\d{4}\b',
-        # Numeric dates with separators and 2 or 4 digit years, e.g. 28-08-25, 28.08.2025, 28/08/2025
         r'\b\d{1,2}[-./]\d{1,2}[-./]\d{2,4}\b',
-    
-        # Dates with ordinal suffixes and month names, e.g. 28th May, 2025 or 28 May 2025
         r'\b\d{1,2}(?:st|nd|rd|th)?\s+[A-Za-z]+,?\s*\d{2,4}\b',
-    
-        # Month name first, day with ordinal suffix, year, e.g. May 28th, 2025
         r'\b[A-Za-z]+\s+\d{1,2}(?:st|nd|rd|th)?,?\s*\d{2,4}\b',
-    
-        # Month name and year only, e.g. May 2025
         r'\b[A-Za-z]+\s+\d{4}\b',
-    
-        # Year only, e.g. 2025
-        r'\b\d{4}\b'
-
+        r'\b\d{4}\b',
     ]
     dates_found = []
     for pattern in date_patterns:
         matches = re.findall(pattern, text, flags=re.IGNORECASE)
         dates_found.extend(matches)
     return list(set(dates_found))
+
 
 def classify_dates(text, dates):
     issue_keywords = ["issued on", "dated", "notified on", "circular no"]
@@ -138,6 +126,20 @@ def classify_dates(text, dates):
 # ------------------------
 # Verification Logic
 # ------------------------
+from dateutil import parser
+
+def parse_date(d):
+    try:
+        dt = parser.parse(d, fuzzy=True, dayfirst=True)
+        return dt
+        if issue_dates and event_dates:
+        parsed_issue = parse_date(issue_dates[0])
+        parsed_event = parse_date(event_dates[0])
+        if parsed_issue and parsed_event and parsed_event < parsed_issue:
+            contradiction = True
+
+    except Exception:
+        return None
 
 def verify_text(text, source_type="TEXT", has_signature=False):
     if not text.strip():
