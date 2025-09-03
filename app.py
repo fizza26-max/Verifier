@@ -1,5 +1,5 @@
 import streamlit as st
-from huggingface_hub import InferenceClient
+from transformers import pipeline, AutoModelForSequenceClassification, AutoTokenizer
 import pdfplumber
 import docx
 from PIL import Image
@@ -8,124 +8,64 @@ from textblob import TextBlob
 import fitz
 import tempfile
 import os
-from datetime import datetime
-import io
 
 # ------------------------
-# Hugging Face Inference Client Setup
+# Hugging Face Models
 # ------------------------
 
-# Get your HF token securely, e.g. from Streamlit secrets or environment variable
-HF_TOKEN = st.secrets.get("hf_token", "")  # Make sure to add your token in .streamlit/secrets.toml
-if not HF_TOKEN:
-    st.warning("Hugging Face API token not found. Please add it to Streamlit secrets as 'hf_token'.")
+# Classification Model
+tokenizer = AutoTokenizer.from_pretrained("facebook/bart-large-mnli")
+model = AutoModelForSequenceClassification.from_pretrained("facebook/bart-large-mnli")
 
-client = InferenceClient(token=HF_TOKEN)
+classifier = pipeline(
+    "zero-shot-classification",
+    model=model,
+    tokenizer=tokenizer,
+    device=-1
+)
 
-# ------------------------
-# HF Zero-Shot Classification
-# ------------------------
-
-def hf_zero_shot_classify(text, candidate_labels):
-    inputs = {
-        "sequence": text,
-        "candidate_labels": candidate_labels
-    }
-    try:
-        response = client.text_classification(
-            model="facebook/bart-large-mnli",
-            inputs=inputs
-        )
-        # response is a list of dicts with 'label' and 'score'
-        sorted_resp = sorted(response, key=lambda x: x['score'], reverse=True)
-        return sorted_resp
-    except Exception as e:
-        st.warning(f"HF zero-shot classification error: {e}")
-        return None
-
-# ------------------------
-# HF OCR (image-to-text)
-# ------------------------
-
-def hf_ocr_image(image: Image.Image):
-    try:
-        buffered = io.BytesIO()
-        image.save(buffered, format="PNG")
-        img_bytes = buffered.getvalue()
-
-        # Call HF OCR
-        response = client.post(
-            model="microsoft/trocr-base-printed",
-            inputs=img_bytes
-        )
-        # response is a dict with generated_text
-        if isinstance(response, dict) and "generated_text" in response:
-            return response["generated_text"]
-        elif isinstance(response, list) and "generated_text" in response[0]:
-            return response[0]["generated_text"]
-        else:
-            return str(response)
-    except Exception as e:
-        st.warning(f"HF OCR error: {e}")
-        return ""
+# OCR Model (instead of pytesseract)
+ocr_pipeline = pipeline("image-to-text", model="microsoft/trocr-base-printed")
 
 
 # ------------------------
 # Extraction Functions
 # ------------------------
-
 def extract_text_from_pdf(file_path):
     text = ""
-    try:
-        with pdfplumber.open(file_path) as pdf:
-            for page in pdf.pages:
-                page_text = page.extract_text()
-                if page_text:
-                    text += page_text + "\n"
-    except Exception as e:
-        st.warning(f"PDF extraction error: {e}")
+    with pdfplumber.open(file_path) as pdf:
+        for page in pdf.pages:
+            page_text = page.extract_text()
+            if page_text:
+                text += page_text + "\n"
 
     if not text.strip():  # OCR fallback
-        try:
-            ocr_text = ""
-            doc = fitz.open(file_path)
-            for page_num in range(len(doc)):
-                page = doc[page_num]
-                pix = page.get_pixmap()
-                img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
-                ocr_text += hf_ocr_image(img) + "\n"
-            text = ocr_text
-        except Exception as e:
-            st.warning(f"OCR fallback error: {e}")
+        ocr_text = ""
+        doc = fitz.open(file_path)
+        for page_num in range(len(doc)):
+            page = doc[page_num]
+            pix = page.get_pixmap()
+            img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+            ocr_text += ocr_pipeline(img)[0]["generated_text"] + "\n"
+        text = ocr_text
     return text.strip()
 
+
 def extract_text_from_docx(file_path):
-    try:
-        doc = docx.Document(file_path)
-        return "\n".join([p.text for p in doc.paragraphs]).strip()
-    except Exception as e:
-        st.warning(f"DOCX extraction error: {e}")
-        return ""
+    doc = docx.Document(file_path)
+    return "\n".join([p.text for p in doc.paragraphs]).strip()
+
 
 def extract_text_from_image(file_path):
-    try:
-        img = Image.open(file_path)
-        return hf_ocr_image(img).strip()
-    except Exception as e:
-        st.warning(f"OCR image extraction error: {e}")
-        return ""
+    img = Image.open(file_path)
+    return ocr_pipeline(img)[0]["generated_text"].strip()
 
-# ------------------------
-# Text Analysis Functions
-# ------------------------
 
 def check_grammar(text):
-    try:
-        blob = TextBlob(text)
-        corrected_text = str(blob.correct())
-        return corrected_text != text
-    except Exception:
-        return False
+    blob = TextBlob(text)
+    corrected_text = str(blob.correct())
+    return corrected_text != text
+
 
 def extract_dates(text):
     date_patterns = [
@@ -139,6 +79,7 @@ def extract_dates(text):
         matches = re.findall(pattern, text, flags=re.IGNORECASE)
         dates_found.extend(matches)
     return list(set(dates_found))
+
 
 def classify_dates(text, dates):
     issue_keywords = ["issued on", "dated", "notified on", "circular no"]
@@ -160,64 +101,70 @@ def classify_dates(text, dates):
         issue_dates.append(dates[0])
     return issue_dates, event_dates
 
+
 # ------------------------
 # Verification Logic
 # ------------------------
-
 def verify_text(text, source_type="TEXT", has_signature=False):
     if not text.strip():
         return "--- Evidence Report ---\n\n❌ No readable text provided."
 
+    # Grammar
     grammar_issue = check_grammar(text)
+    # Dates
     dates = extract_dates(text)
     issue_dates, event_dates = classify_dates(text, dates)
 
+    # Scam / fake indicators
+    scam_keywords = [
+        "bank details", "send money", "lottery", "win prize",
+        "transfer fee", "urgent", "click here", "claim", "scholarship $"
+    ]
+    scam_detected = any(kw in text.lower() for kw in scam_keywords)
+
+    # Date consistency
     contradiction = False
     if issue_dates and event_dates:
-        fmt_variants = ["%d/%m/%Y", "%d-%m-%Y", "%d.%m.%Y", "%d %B %Y", "%B %d, %Y"]
+        try:
+            from datetime import datetime
+            fmt_variants = ["%d/%m/%Y", "%d-%m-%Y", "%d.%m.%Y", "%d %B %Y", "%B %d, %Y"]
 
-        def parse_date(d):
-            for fmt in fmt_variants:
-                try:
-                    return datetime.strptime(d, fmt)
-                except Exception:
-                    continue
-            return None
+            def parse_date(d):
+                for fmt in fmt_variants:
+                    try:
+                        return datetime.strptime(d, fmt)
+                    except Exception:
+                        continue
+                return None
 
-        parsed_issue = parse_date(issue_dates[0])
-        parsed_event = parse_date(event_dates[0])
-        if parsed_issue and parsed_event and parsed_event < parsed_issue:
-            contradiction = True
+            parsed_issue = parse_date(issue_dates[0])
+            parsed_event = parse_date(event_dates[0])
+            if parsed_issue and parsed_event and parsed_event < parsed_issue:
+                contradiction = True
+        except Exception:
+            pass
 
+    # Hugging Face Classification
     labels = ["REAL", "FAKE"]
-    result = hf_zero_shot_classify(text[:1000], labels)
-    if result:
-        model_label = result[0]['label']
-        model_confidence = result[0]['score']
-    else:
-        model_label = "FAKE"
-        model_confidence = 0.0
+    result = classifier(text[:1000], candidate_labels=labels)
+    model_label = result['labels'][0]
+    model_confidence = result['scores'][0]
 
+    # ------------------------
+    # Signature / Seal Boost
+    # ------------------------
     signature_keywords = ["signature", "signed by", "seal", "stamp", "authorized", "principal", "head of"]
-    has_signature_or_seal = any(kw in text.lower() for kw in signature_keywords) or has_signature
-
-    if has_signature_or_seal:
-        model_confidence = min(1.0, model_confidence + 0.25)
-        if model_label == "FAKE" and not (contradiction or grammar_issue):
+    if any(kw in text.lower() for kw in signature_keywords) or has_signature:
+        model_confidence = min(1.0, model_confidence + 0.25)  # boost confidence
+        if model_label == "FAKE" and not (scam_detected or contradiction or grammar_issue):
             model_label = "REAL"
 
-    # Additional confidence boost if no issues detected
-    if not (contradiction or grammar_issue):
-        model_confidence = min(1.0, model_confidence + 0.15)
-
-    # Adjust label if confidence is low but no issues
-    if model_confidence < 0.5 and not (contradiction or grammar_issue):
-        model_label = "REAL"
-
+    # Final Verdict
     final_label = model_label
-    if contradiction or grammar_issue:
+    if scam_detected or contradiction or grammar_issue:
         final_label = "FAKE"
 
+    # Report
     report = "📄 Evidence Report\n\n"
     report += "🔎 Document Analysis\n\n"
     report += f"Source: {source_type}\n\n"
@@ -237,29 +184,25 @@ def verify_text(text, source_type="TEXT", has_signature=False):
 
     if contradiction:
         report += "⚠️ Date inconsistency detected (event before issue date).\n"
-    if has_signature_or_seal:
+    if scam_detected:
+        report += "⚠️ Scam-related keywords detected.\n"
+    if has_signature or any(kw in text.lower() for kw in signature_keywords):
         report += "✅ Signature/Seal detected in document.\n"
 
     report += "\nFormatting and tone analyzed.\n\n"
-
-    report += f"🏁 Classification Result\n\n"
+    report += "🏁 Classification Result\n\n"
     report += f"Model Verdict: {model_label} ({model_confidence:.2f})\n"
-    if model_confidence < 0.6:
-        report += "⚠️ Model confidence is moderate; please review the document carefully.\n"
-    else:
-        report += "✅ Model confidence is strong.\n"
     report += f"Final Label: {final_label}\n"
 
     return report
 
-# ------------------------
-# Document Verification Wrapper
-# ------------------------
+
 
 def verify_document(file):
     if file is None:
         return "❌ Please upload a file or provide a file path."
 
+    # Handle file type
     suffix = os.path.splitext(file.name)[-1]
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
         tmp.write(file.read())
@@ -275,12 +218,8 @@ def verify_document(file):
     else:
         return "❌ Unsupported file type."
 
-    try:
-        os.unlink(file_path)
-    except Exception:
-        pass
-
     return verify_text(text, source_type=ext.upper())
+
 
 def process_input(file, manual_text):
     if file is not None:
@@ -290,10 +229,10 @@ def process_input(file, manual_text):
     else:
         return "❌ Please upload a document or paste text first."
 
+
 # ------------------------
 # Streamlit UI
 # ------------------------
-
 st.set_page_config(page_title="Document Verifier", layout="centered")
 st.title("📑 Document Authenticity Verifier")
 
@@ -301,14 +240,16 @@ uploaded_file = st.file_uploader(
     "Upload a document (PDF, DOCX, PNG, JPG)",
     type=["pdf", "docx", "png", "jpg", "jpeg"]
 )
-manual_text = st.text_area("Or paste text manually", height=150)
+manual_text = st.text_area("Or paste text manually")
 
+# Button for uploaded files
 if st.button("Verify Uploaded Document"):
     with st.spinner("Analyzing uploaded document..."):
         result = process_input(uploaded_file, "")
-    st.text_area("Evidence Report", value=result, height=400, key="report1")
+    st.text_area("Evidence Report", value=result, height=400)
 
+# Button for manual text
 if st.button("Verify Manual Text"):
     with st.spinner("Analyzing manual text..."):
         result = process_input(None, manual_text)
-    st.text_area("Evidence Report", value=result, height=400, key="report2")
+    st.text_area("Evidence Report", value=result, height=400)
