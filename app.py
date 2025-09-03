@@ -166,10 +166,20 @@ def verify_text(text, source_type="TEXT", has_signature=False):
         model_confidence = 0.0
 
     signature_keywords = ["signature", "signed by", "seal", "stamp", "authorized", "principal", "head of"]
-    if any(kw in text.lower() for kw in signature_keywords) or has_signature:
+    has_signature_or_seal = any(kw in text.lower() for kw in signature_keywords) or has_signature
+
+    if has_signature_or_seal:
         model_confidence = min(1.0, model_confidence + 0.25)
         if model_label == "FAKE" and not (scam_detected or contradiction or grammar_issue):
             model_label = "REAL"
+
+    # Additional confidence boost if no issues detected
+    if not (scam_detected or contradiction or grammar_issue):
+        model_confidence = min(1.0, model_confidence + 0.15)
+
+    # Adjust label if confidence is low but no issues
+    if model_confidence < 0.5 and not (scam_detected or contradiction or grammar_issue):
+        model_label = "REAL"
 
     final_label = model_label
     if scam_detected or contradiction or grammar_issue:
@@ -196,15 +206,22 @@ def verify_text(text, source_type="TEXT", has_signature=False):
         report += "⚠️ Date inconsistency detected (event before issue date).\n"
     if scam_detected:
         report += "⚠️ Scam-related keywords detected.\n"
-    if has_signature or any(kw in text.lower() for kw in signature_keywords):
+    if has_signature_or_seal:
         report += "✅ Signature/Seal detected in document.\n"
 
     report += "\nFormatting and tone analyzed.\n\n"
-    report += "🏁 Classification Result\n\n"
+
+    # Add model verdict and confidence explanation
+    report += f"🏁 Classification Result\n\n"
     report += f"Model Verdict: {model_label} ({model_confidence:.2f})\n"
+    if model_confidence < 0.6:
+        report += "⚠️ Model confidence is moderate; please review the document carefully.\n"
+    else:
+        report += "✅ Model confidence is strong.\n"
     report += f"Final Label: {final_label}\n"
 
     return report
+
 
 def verify_document(file):
     if file is None:
@@ -214,6 +231,7 @@ def verify_document(file):
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
         tmp.write(file.read())
         file_path = tmp.name
+    
 
     ext = file_path.split('.')[-1].lower()
     if ext == "pdf":
