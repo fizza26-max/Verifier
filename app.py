@@ -1,5 +1,5 @@
 import streamlit as st
-from transformers import pipeline, AutoModelForSequenceClassification, AutoTokenizer
+from huggingface_hub import InferenceClient
 import pdfplumber
 import docx
 from PIL import Image
@@ -9,30 +9,59 @@ import fitz
 import tempfile
 import os
 from datetime import datetime
+import io
 
 # ------------------------
-# Cached Model Loaders
+# Hugging Face Inference Client Setup
 # ------------------------
 
-@st.cache_resource(show_spinner=False)
-def load_classifier():
-    tokenizer = AutoTokenizer.from_pretrained("facebook/bart-large-mnli")
-    model = AutoModelForSequenceClassification.from_pretrained("facebook/bart-large-mnli")
-    classifier = pipeline(
-        "zero-shot-classification",
-        model=model,
-        tokenizer=tokenizer,
-        device=-1  # CPU
-    )
-    return classifier
+# Get your HF token securely, e.g. from Streamlit secrets or environment variable
+HF_TOKEN = st.secrets.get("hf_token", "")  # Make sure to add your token in .streamlit/secrets.toml
+if not HF_TOKEN:
+    st.warning("Hugging Face API token not found. Please add it to Streamlit secrets as 'hf_token'.")
 
-@st.cache_resource(show_spinner=False)
-def load_ocr_pipeline():
-    ocr = pipeline("image-to-text", model="microsoft/trocr-base-printed", device=-1)
-    return ocr
+client = InferenceClient(token=HF_TOKEN)
 
-classifier = load_classifier()
-ocr_pipeline = load_ocr_pipeline()
+# ------------------------
+# HF Zero-Shot Classification
+# ------------------------
+
+def hf_zero_shot_classify(text, candidate_labels):
+    inputs = {
+        "sequence": text,
+        "candidate_labels": candidate_labels
+    }
+    try:
+        response = client.text_classification(
+            model="facebook/bart-large-mnli",
+            inputs=inputs
+        )
+        # response is a list of dicts with 'label' and 'score'
+        sorted_resp = sorted(response, key=lambda x: x['score'], reverse=True)
+        return sorted_resp
+    except Exception as e:
+        st.warning(f"HF zero-shot classification error: {e}")
+        return None
+
+# ------------------------
+# HF OCR (image-to-text)
+# ------------------------
+
+def hf_ocr_image(image: Image.Image):
+    try:
+        buffered = io.BytesIO()
+        image.save(buffered, format="PNG")
+        img_bytes = buffered.getvalue()
+
+        response = client.image_to_text(
+            model="microsoft/trocr-base-printed",
+            data=img_bytes
+        )
+        # response is a string of recognized text
+        return response
+    except Exception as e:
+        st.warning(f"HF OCR error: {e}")
+        return ""
 
 # ------------------------
 # Extraction Functions
@@ -57,7 +86,7 @@ def extract_text_from_pdf(file_path):
                 page = doc[page_num]
                 pix = page.get_pixmap()
                 img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
-                ocr_text += ocr_pipeline(img)[0]["generated_text"] + "\n"
+                ocr_text += hf_ocr_image(img) + "\n"
             text = ocr_text
         except Exception as e:
             st.warning(f"OCR fallback error: {e}")
@@ -74,10 +103,14 @@ def extract_text_from_docx(file_path):
 def extract_text_from_image(file_path):
     try:
         img = Image.open(file_path)
-        return ocr_pipeline(img)[0]["generated_text"].strip()
+        return hf_ocr_image(img).strip()
     except Exception as e:
         st.warning(f"OCR image extraction error: {e}")
         return ""
+
+# ------------------------
+# Text Analysis Functions
+# ------------------------
 
 def check_grammar(text):
     try:
@@ -150,12 +183,11 @@ def verify_text(text, source_type="TEXT", has_signature=False):
             contradiction = True
 
     labels = ["REAL", "FAKE"]
-    try:
-        result = classifier(text[:1000], candidate_labels=labels)
-        model_label = result['labels'][0]
-        model_confidence = result['scores'][0]
-    except Exception as e:
-        st.warning(f"Classification error: {e}")
+    result = hf_zero_shot_classify(text[:1000], labels)
+    if result:
+        model_label = result[0]['label']
+        model_confidence = result[0]['score']
+    else:
         model_label = "FAKE"
         model_confidence = 0.0
 
@@ -203,7 +235,6 @@ def verify_text(text, source_type="TEXT", has_signature=False):
 
     report += "\nFormatting and tone analyzed.\n\n"
 
-    # Add model verdict and confidence explanation
     report += f"🏁 Classification Result\n\n"
     report += f"Model Verdict: {model_label} ({model_confidence:.2f})\n"
     if model_confidence < 0.6:
@@ -214,6 +245,9 @@ def verify_text(text, source_type="TEXT", has_signature=False):
 
     return report
 
+# ------------------------
+# Document Verification Wrapper
+# ------------------------
 
 def verify_document(file):
     if file is None:
@@ -223,7 +257,6 @@ def verify_document(file):
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
         tmp.write(file.read())
         file_path = tmp.name
-    
 
     ext = file_path.split('.')[-1].lower()
     if ext == "pdf":
