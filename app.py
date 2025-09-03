@@ -128,18 +128,7 @@ def classify_dates(text, dates):
 # ------------------------
 from dateutil import parser
 
-def parse_date(d):
-    try:
-        dt = parser.parse(d, fuzzy=True, dayfirst=True)
-        return dt
-        if issue_dates and event_dates:
-        parsed_issue = parse_date(issue_dates[0])
-        parsed_event = parse_date(event_dates[0])
-        if parsed_issue and parsed_event and parsed_event < parsed_issue:
-            contradiction = True
 
-    except Exception:
-        return None
 
 def verify_text(text, source_type="TEXT", has_signature=False):
     if not text.strip():
@@ -167,11 +156,7 @@ def verify_text(text, source_type="TEXT", has_signature=False):
                     continue
             return None
 
-        parsed_issue = parse_date(issue_dates[0])
-        parsed_event = parse_date(event_dates[0])
-        if parsed_issue and parsed_event and parsed_event < parsed_issue:
-            contradiction = True
-
+        
     labels = ["REAL", "FAKE"]
     try:
         result = classifier(text[:1000], candidate_labels=labels)
