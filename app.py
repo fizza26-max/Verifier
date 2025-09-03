@@ -171,7 +171,7 @@ def verify_text(text, source_type="TEXT", has_signature=False):
     has_signature_or_seal = any(kw in text.lower() for kw in signature_keywords) or has_signature
 
     if has_signature_or_seal:
-        model_confidence = min(1.0, model_confidence + 0.25)
+        model_confidence = min(1.0, model_confidence + 0.35)
         if model_label == "FAKE" and not (scam_detected or contradiction or grammar_issue):
             model_label = "REAL"
 
