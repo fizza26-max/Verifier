@@ -134,9 +134,12 @@ def verify_text(text, source_type="TEXT", has_signature=False):
     if not text.strip():
         return "--- Evidence Report ---\n\n❌ No readable text provided."
 
+    report = "📄 **Evidence Report**\n\n"  # Initialize report here
+
     grammar_issue = check_grammar(text)
     dates = extract_dates(text)
     issue_dates, event_dates = classify_dates(text, dates)
+
 
     scam_keywords = [
         "bank details", "send money", "lottery", "win prize",
