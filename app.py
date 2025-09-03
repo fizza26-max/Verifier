@@ -93,6 +93,21 @@ def extract_dates(text):
         r'\b\d{1,2}\.\d{1,2}\.\d{2,4}\b',
         r'\b\d{1,2}(?:st|nd|rd|th)?\s+\w+\s*,?\s*\d{2,4}\b',
         r'\b\w+\s+\d{1,2},\s*\d{4}\b',
+        # Numeric dates with separators and 2 or 4 digit years, e.g. 28-08-25, 28.08.2025, 28/08/2025
+        r'\b\d{1,2}[-./]\d{1,2}[-./]\d{2,4}\b',
+    
+        # Dates with ordinal suffixes and month names, e.g. 28th May, 2025 or 28 May 2025
+        r'\b\d{1,2}(?:st|nd|rd|th)?\s+[A-Za-z]+,?\s*\d{2,4}\b',
+    
+        # Month name first, day with ordinal suffix, year, e.g. May 28th, 2025
+        r'\b[A-Za-z]+\s+\d{1,2}(?:st|nd|rd|th)?,?\s*\d{2,4}\b',
+    
+        # Month name and year only, e.g. May 2025
+        r'\b[A-Za-z]+\s+\d{4}\b',
+    
+        # Year only, e.g. 2025
+        r'\b\d{4}\b'
+
     ]
     dates_found = []
     for pattern in date_patterns:
@@ -186,12 +201,12 @@ def verify_text(text, source_type="TEXT", has_signature=False):
         final_label = "FAKE"
 
     # Build improved report
-    report = "📄 **Evidence Report**\n\n"
+    report = "📄 Evidence Report\n\n"
     report += f"🗂️ **Source:** {source_type}\n\n"
 
     report += "🔍 **Document Analysis Summary:**\n"
     if scam_detected:
-        report += "⚠️ **Potential Scam Indicators Detected:**\n"
+        report += "⚠️ Potential Scam Indicators Detected:\n"
         for kw in scam_keywords:
             if kw in text.lower():
                 report += f"  - Keyword: '{kw}' found\n"
@@ -200,48 +215,48 @@ def verify_text(text, source_type="TEXT", has_signature=False):
         report += "No scam-related keywords detected.\n\n"
 
     if grammar_issue:
-        report += "⚠️ **Grammar/Spelling Issues Detected:**\n"
+        report += "⚠️ Grammar/Spelling Issues Detected:\n"
         report += "  - The text contains grammar or spelling mistakes which may indicate tampering or poor quality.\n\n"
     else:
         report += "No grammar or spelling issues detected.\n\n"
 
     if contradiction:
-        report += "⚠️ **Date Contradiction Found:**\n"
+        report += "⚠️ Date Contradiction Found:\n"
         report += f"  - Event date ({event_dates[0]}) occurs before issue date ({issue_dates[0]}), which is inconsistent.\n\n"
     else:
         report += "No date contradictions detected.\n\n"
 
     if has_signature_or_seal:
-        report += "✅ **Signature or Seal Detected:**\n"
+        report += "✅ Signature or Seal Detected:\n"
         report += "  - Document contains signature/seal keywords or actual signature detected.\n\n"
     else:
         report += "No signature or seal detected.\n\n"
 
     if issue_dates:
-        report += f"📅 **Issue Date(s):** {', '.join(issue_dates)}\n"
+        report += f"📅 Issue Date(s): {', '.join(issue_dates)}\n"
     if event_dates:
-        report += f"📅 **Event Date(s):** {', '.join(event_dates)}\n"
+        report += f"📅 Event Date(s): {', '.join(event_dates)}\n"
     if not dates:
         report += "No dates detected in the document.\n"
     report += "\n"
 
-    report += "📝 **Formatting and Tone:**\n"
+    report += "📝 Formatting and Tone:\n"
     report += "  - Document formatting and tone have been analyzed for consistency.\n\n"
 
-    report += "🏁 **Model Classification Result:**\n"
-    report += f"  - Verdict: **{model_label}**\n"
+    report += "🏁 Model Classification Result:\n"
+    report += f"  - Verdict: {model_label}\n"
     report += f"  - Confidence: **{model_confidence:.2f}**\n"
     if model_confidence < 0.6:
         report += "⚠️ Model confidence is moderate; please review the document carefully.\n"
     else:
         report += "✅ Model confidence is strong.\n"
-    report += f"  - Final Label: **{final_label}**\n\n"
+    report += f"  - Final Label: {final_label}\n\n"
 
     # Suggest next steps
     if final_label == "FAKE":
-        report += "❗ **Recommendation:** The document may be fraudulent or altered. Please verify with the issuing authority.\n"
+        report += "❗ Recommendation: The document may be fraudulent or altered. Please verify with the issuing authority.\n"
     else:
-        report += "✔️ **Recommendation:** The document appears authentic based on current analysis.\n"
+        report += "✔️ Recommendation: The document appears authentic based on current analysis.\n"
 
     return report
 
