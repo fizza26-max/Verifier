@@ -53,15 +53,22 @@ def hf_ocr_image(image: Image.Image):
         image.save(buffered, format="PNG")
         img_bytes = buffered.getvalue()
 
-        response = client.image_to_text(
+        # Call HF OCR
+        response = client.post(
             model="microsoft/trocr-base-printed",
-            data=img_bytes
+            inputs=img_bytes
         )
-        # response is a string of recognized text
-        return response
+        # response is a dict with generated_text
+        if isinstance(response, dict) and "generated_text" in response:
+            return response["generated_text"]
+        elif isinstance(response, list) and "generated_text" in response[0]:
+            return response[0]["generated_text"]
+        else:
+            return str(response)
     except Exception as e:
         st.warning(f"HF OCR error: {e}")
         return ""
+
 
 # ------------------------
 # Extraction Functions
