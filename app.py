@@ -188,8 +188,7 @@ def verify_text(text, source_type="TEXT", has_signature=False):
         final_label = "FAKE"
 
     # Build improved report
-    report = "📄 Evidence Report\n\n"
-    report += f"🗂️ **Source:** {source_type}\n\n"
+    report += f"🗂️ Source: {source_type}\n\n"
 
     report += "🔍 **Document Analysis Summary:**\n"
     if scam_detected:
@@ -197,34 +196,34 @@ def verify_text(text, source_type="TEXT", has_signature=False):
         for kw in scam_keywords:
             if kw in text.lower():
                 report += f"  - Keyword: '{kw}' found\n"
-        report += "Please verify the authenticity carefully.\n\n"
+        report += "Please verify the authenticity carefully.\n"
     else:
-        report += "No scam-related keywords detected.\n\n"
+        report += ""
 
     if grammar_issue:
         report += "⚠️ Grammar/Spelling Issues Detected:\n"
         report += "  - The text contains grammar or spelling mistakes which may indicate tampering or poor quality.\n\n"
     else:
-        report += "No grammar or spelling issues detected.\n\n"
+        report += ""
 
     if contradiction:
         report += "⚠️ Date Contradiction Found:\n"
         report += f"  - Event date ({event_dates[0]}) occurs before issue date ({issue_dates[0]}), which is inconsistent.\n\n"
     else:
-        report += "No date contradictions detected.\n\n"
+        report += ""
 
     if has_signature_or_seal:
         report += "✅ Signature or Seal Detected:\n"
         report += "  - Document contains signature/seal keywords or actual signature detected.\n\n"
     else:
-        report += "No signature or seal detected.\n\n"
+        report += ""
 
     if issue_dates:
         report += f"📅 Issue Date(s): {', '.join(issue_dates)}\n"
     if event_dates:
         report += f"📅 Event Date(s): {', '.join(event_dates)}\n"
     if not dates:
-        report += "No dates detected in the document.\n"
+        report += ""
     report += "\n"
 
     report += "📝 Formatting and Tone:\n"
