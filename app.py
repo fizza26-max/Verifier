@@ -185,40 +185,63 @@ def verify_text(text, source_type="TEXT", has_signature=False):
     if scam_detected or contradiction or grammar_issue:
         final_label = "FAKE"
 
-    report = "📄 Evidence Report\n\n"
-    report += "🔎 Document Analysis\n\n"
-    report += f"Source: {source_type}\n\n"
+    # Build improved report
+    report = "📄 **Evidence Report**\n\n"
+    report += f"🗂️ **Source:** {source_type}\n\n"
 
-    report += "✅ Evidence Considered\n\n"
-    if grammar_issue:
-        report += "⚠️ Grammar/Spelling issues detected.\n"
+    report += "🔍 **Document Analysis Summary:**\n"
+    if scam_detected:
+        report += "⚠️ **Potential Scam Indicators Detected:**\n"
+        for kw in scam_keywords:
+            if kw in text.lower():
+                report += f"  - Keyword: '{kw}' found\n"
+        report += "Please verify the authenticity carefully.\n\n"
     else:
-        report += "No grammar issues detected.\n"
+        report += "No scam-related keywords detected.\n\n"
 
-    if issue_dates:
-        report += f"📌 Issue Date(s): {', '.join(issue_dates)}\n"
-    if event_dates:
-        report += f"📌 Event Date(s): {', '.join(event_dates)}\n"
-    if not dates:
-        report += "No specific dates detected.\n"
+    if grammar_issue:
+        report += "⚠️ **Grammar/Spelling Issues Detected:**\n"
+        report += "  - The text contains grammar or spelling mistakes which may indicate tampering or poor quality.\n\n"
+    else:
+        report += "No grammar or spelling issues detected.\n\n"
 
     if contradiction:
-        report += "⚠️ Date inconsistency detected (event before issue date).\n"
-    if scam_detected:
-        report += "⚠️ Scam-related keywords detected.\n"
+        report += "⚠️ **Date Contradiction Found:**\n"
+        report += f"  - Event date ({event_dates[0]}) occurs before issue date ({issue_dates[0]}), which is inconsistent.\n\n"
+    else:
+        report += "No date contradictions detected.\n\n"
+
     if has_signature_or_seal:
-        report += "✅ Signature/Seal detected in document.\n"
+        report += "✅ **Signature or Seal Detected:**\n"
+        report += "  - Document contains signature/seal keywords or actual signature detected.\n\n"
+    else:
+        report += "No signature or seal detected.\n\n"
 
-    report += "\nFormatting and tone analyzed.\n\n"
+    if issue_dates:
+        report += f"📅 **Issue Date(s):** {', '.join(issue_dates)}\n"
+    if event_dates:
+        report += f"📅 **Event Date(s):** {', '.join(event_dates)}\n"
+    if not dates:
+        report += "No dates detected in the document.\n"
+    report += "\n"
 
-    # Add model verdict and confidence explanation
-    report += f"🏁 Classification Result\n\n"
-    report += f"Model Verdict: {model_label} ({model_confidence:.2f})\n"
+    report += "📝 **Formatting and Tone:**\n"
+    report += "  - Document formatting and tone have been analyzed for consistency.\n\n"
+
+    report += "🏁 **Model Classification Result:**\n"
+    report += f"  - Verdict: **{model_label}**\n"
+    report += f"  - Confidence: **{model_confidence:.2f}**\n"
     if model_confidence < 0.6:
         report += "⚠️ Model confidence is moderate; please review the document carefully.\n"
     else:
         report += "✅ Model confidence is strong.\n"
-    report += f"Final Label: {final_label}\n"
+    report += f"  - Final Label: **{final_label}**\n\n"
+
+    # Suggest next steps
+    if final_label == "FAKE":
+        report += "❗ **Recommendation:** The document may be fraudulent or altered. Please verify with the issuing authority.\n"
+    else:
+        report += "✔️ **Recommendation:** The document appears authentic based on current analysis.\n"
 
     return report
 
