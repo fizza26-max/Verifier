@@ -16,8 +16,8 @@ from datetime import datetime
 
 @st.cache_resource(show_spinner=False)
 def load_classifier():
-    tokenizer = AutoTokenizer.from_pretrained("MoritzLaurer/debertav3-base-mnli")
-    model = AutoModelForSequenceClassification.from_pretrained("MoritzLaurer/debertav3-base-mnli")
+    tokenizer = AutoTokenizer.from_pretrained("cross-encoder/nli-deberta-v3-base")
+    model = AutoModelForSequenceClassification.from_pretrained("cross-encoder/nli-deberta-v3-base")
     classifier = pipeline(
         "zero-shot-classification",
         model=model,
