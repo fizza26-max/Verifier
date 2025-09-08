@@ -16,14 +16,15 @@ from datetime import datetime
 
 @st.cache_resource(show_spinner=False)
 def load_classifier():
-    tokenizer = AutoTokenizer.from_pretrained("facebook/bart-large-mnli")
-    model = AutoModelForSequenceClassification.from_pretrained("facebook/bart-large-mnli")
+    tokenizer = AutoTokenizer.from_pretrained("MoritzLaurer/debertav3-base-mnli")
+    model = AutoModelForSequenceClassification.from_pretrained("MoritzLaurer/debertav3-base-mnli")
     classifier = pipeline(
         "zero-shot-classification",
         model=model,
         tokenizer=tokenizer,
-        device=-1  # CPU
+        device=-1
     )
+
     return classifier
 
 @st.cache_resource(show_spinner=False)
