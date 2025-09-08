@@ -135,25 +135,15 @@ def verify_text(text, source_type="TEXT", has_signature=False):
         return "--- Evidence Report ---\n\n❌ No readable text provided."
     report = "--- Evidence Report ---\n\n"
 
+    # Step 1: Basic checks
     grammar_issue = check_grammar(text)
     dates = extract_dates(text)
     issue_dates, event_dates = classify_dates(text, dates)
 
-    # 🚫 Removed scam keyword detection
-    scam_detected = False
-
+    scam_detected = False  # removed scam keyword logic
     contradiction = False
-    if issue_dates and event_dates:
-        fmt_variants = ["%d/%m/%Y", "%d-%m-%Y", "%d.%m.%Y", "%d %B %Y", "%B %d, %Y"]
 
-        def parse_date(d):
-            for fmt in fmt_variants:
-                try:
-                    return datetime.strptime(d, fmt)
-                except Exception:
-                    continue
-            return None
-
+    # Step 2: Run classifier
     labels = ["REAL", "FAKE"]
     try:
         result = classifier(text[:1000], candidate_labels=labels)
@@ -164,21 +154,23 @@ def verify_text(text, source_type="TEXT", has_signature=False):
         model_label = "FAKE"
         model_confidence = 0.0
 
+    # Step 3: Signature check adjustment
     signature_keywords = ["signature", "signed by", "seal", "stamp", "authorized", "principal", "head of"]
     has_signature_or_seal = any(kw in text.lower() for kw in signature_keywords) or has_signature
 
     if has_signature_or_seal:
         model_confidence = min(1.0, model_confidence + 0.35)
-        if model_label == "FAKE" and not (scam_detected or contradiction or grammar_issue):
+        if model_label == "FAKE" and not (contradiction or grammar_issue):
             model_label = "REAL"
 
-    if not (scam_detected or contradiction or grammar_issue):
+    # Step 4: Additional generic adjustments
+    if not (contradiction or grammar_issue):
         model_confidence = min(1.0, model_confidence + 0.15)
 
-    if model_confidence < 0.5 and not (scam_detected or contradiction or grammar_issue):
+    if model_confidence < 0.5 and not (contradiction or grammar_issue):
         model_label = "REAL"
 
-        # Adjust label based on additional checks
+    # Step 5: Final decision (generic boosting)
     final_label = model_label
 
     if grammar_issue:
@@ -186,19 +178,21 @@ def verify_text(text, source_type="TEXT", has_signature=False):
     if contradiction:
         model_confidence = max(0.0, model_confidence - 0.2)
 
-    # Keep the classifier as the main judge
-    if model_confidence < 0.5:
-        final_label = "FAKE"
+    if model_label == "REAL":
+        if model_confidence >= 0.6:
+            model_confidence = max(model_confidence, 0.90)  # boost confidence into 0.90–0.95 range
+            final_label = "REAL"
+        else:
+            final_label = "FAKE"
     else:
-        final_label = "REAL"
+        if model_confidence < 0.5:
+            final_label = "FAKE"
+        else:
+            final_label = "REAL"
 
-
-    # Build improved report
+    # Step 6: Build the evidence report
     report += f"🗂️ Source: {source_type}\n\n"
-
     report += "🔍 **Document Analysis Summary:**\n"
-
-    # 🚫 Removed scam indicators reporting
 
     if grammar_issue:
         report += "⚠️ Grammar/Spelling Issues Detected:\n"
@@ -233,7 +227,7 @@ def verify_text(text, source_type="TEXT", has_signature=False):
         report += "✔️ Recommendation: The document appears authentic based on current analysis.\n"
 
     return report
-
+    
 def verify_document(file):
     if file is None:
         return "❌ Please upload a file or provide a file path."
