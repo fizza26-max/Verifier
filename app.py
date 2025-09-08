@@ -139,12 +139,8 @@ def verify_text(text, source_type="TEXT", has_signature=False):
     dates = extract_dates(text)
     issue_dates, event_dates = classify_dates(text, dates)
 
-
-    scam_keywords = [
-        "bank details", "send money", "lottery", "win prize",
-        "transfer fee", "urgent", "click here", "claim", "scholarship $"
-    ]
-    scam_detected = any(kw in text.lower() for kw in scam_keywords)
+    # 🚫 Removed scam keyword detection
+    scam_detected = False
 
     contradiction = False
     if issue_dates and event_dates:
@@ -158,7 +154,6 @@ def verify_text(text, source_type="TEXT", has_signature=False):
                     continue
             return None
 
-        
     labels = ["REAL", "FAKE"]
     try:
         result = classifier(text[:1000], candidate_labels=labels)
@@ -177,11 +172,9 @@ def verify_text(text, source_type="TEXT", has_signature=False):
         if model_label == "FAKE" and not (scam_detected or contradiction or grammar_issue):
             model_label = "REAL"
 
-    # Additional confidence boost if no issues detected
     if not (scam_detected or contradiction or grammar_issue):
         model_confidence = min(1.0, model_confidence + 0.15)
 
-    # Adjust label if confidence is low but no issues
     if model_confidence < 0.5 and not (scam_detected or contradiction or grammar_issue):
         model_label = "REAL"
 
@@ -193,39 +186,25 @@ def verify_text(text, source_type="TEXT", has_signature=False):
     report += f"🗂️ Source: {source_type}\n\n"
 
     report += "🔍 **Document Analysis Summary:**\n"
-    if scam_detected:
-        report += "⚠️ Potential Scam Indicators Detected:\n"
-        for kw in scam_keywords:
-            if kw in text.lower():
-                report += f"  - Keyword: '{kw}' found\n"
-        report += "Please verify the authenticity carefully.\n"
-    else:
-        report += ""
+
+    # 🚫 Removed scam indicators reporting
 
     if grammar_issue:
         report += "⚠️ Grammar/Spelling Issues Detected:\n"
         report += "  - The text contains grammar or spelling mistakes which may indicate tampering or poor quality.\n\n"
-    else:
-        report += ""
 
     if contradiction:
         report += "⚠️ Date Contradiction Found:\n"
         report += f"  - Event date ({event_dates[0]}) occurs before issue date ({issue_dates[0]}), which is inconsistent.\n\n"
-    else:
-        report += ""
 
     if has_signature_or_seal:
         report += "✅ Signature or Seal Detected:\n"
         report += "  - Document contains signature/seal keywords or actual signature detected.\n\n"
-    else:
-        report += ""
 
     if issue_dates:
         report += f"📅 Issue Date(s): {', '.join(issue_dates)}\n"
     if event_dates:
         report += f"📅 Event Date(s): {', '.join(event_dates)}\n"
-    if not dates:
-        report += ""
     report += "\n"
 
     report += "📝 Formatting and Tone:\n"
@@ -237,7 +216,6 @@ def verify_text(text, source_type="TEXT", has_signature=False):
         report += "✅ Model confidence is strong.\n"
     report += f"  - Final Label: {final_label}\n\n"
 
-    # Suggest next steps
     if final_label == "FAKE":
         report += "❗ Recommendation: The document may be fraudulent or altered. Please verify with the issuing authority.\n"
     else:
