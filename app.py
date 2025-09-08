@@ -233,7 +233,6 @@ def verify_text(text, source_type="TEXT", has_signature=False):
     report += "  - Document formatting and tone have been analyzed for consistency.\n\n"
 
     report += "🏁 Model Classification Result:\n"
-    report += f"  - Verdict: {model_label}\n"
     report += f"  - Confidence: **{model_confidence:.2f}**\n"
     if model_confidence < 0.6:
         report += "⚠️ Model confidence is moderate; please review the document carefully.\n"
