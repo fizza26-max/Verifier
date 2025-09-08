@@ -178,9 +178,20 @@ def verify_text(text, source_type="TEXT", has_signature=False):
     if model_confidence < 0.5 and not (scam_detected or contradiction or grammar_issue):
         model_label = "REAL"
 
+        # Adjust label based on additional checks
     final_label = model_label
-    if scam_detected or contradiction or grammar_issue:
+
+    if grammar_issue:
+        model_confidence = max(0.0, model_confidence - 0.2)
+    if contradiction:
+        model_confidence = max(0.0, model_confidence - 0.2)
+
+    # Keep the classifier as the main judge
+    if model_confidence < 0.5:
         final_label = "FAKE"
+    else:
+        final_label = "REAL"
+
 
     # Build improved report
     report += f"🗂️ Source: {source_type}\n\n"
