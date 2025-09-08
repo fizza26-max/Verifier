@@ -132,7 +132,7 @@ from dateutil import parser
 
 def verify_text(text, source_type="TEXT", has_signature=False):
     if not text.strip():
-        return "--- Evidence Report ---\n\n❌ No readable text provided.
+        return "--- Evidence Report ---\n\n❌ No readable text provided."
 
     grammar_issue = check_grammar(text)
     dates = extract_dates(text)
