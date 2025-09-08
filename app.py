@@ -132,9 +132,7 @@ from dateutil import parser
 
 def verify_text(text, source_type="TEXT", has_signature=False):
     if not text.strip():
-        return "--- Evidence Report ---\n\n❌ No readable text provided."
-
-    report = "📄 **Evidence Report**\n\n"  # Initialize report here
+        return "--- Evidence Report ---\n\n❌ No readable text provided.
 
     grammar_issue = check_grammar(text)
     dates = extract_dates(text)
@@ -231,8 +229,6 @@ def verify_text(text, source_type="TEXT", has_signature=False):
 
     report += "📝 Formatting and Tone:\n"
     report += "  - Document formatting and tone have been analyzed for consistency.\n\n"
-
-    report += "🏁 Model Classification Result:\n"
     report += f"  - Confidence: **{model_confidence:.2f}**\n"
     if model_confidence < 0.6:
         report += "⚠️ Model confidence is moderate; please review the document carefully.\n"
